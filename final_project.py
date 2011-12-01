@@ -183,9 +183,13 @@ def GlyphGHCN():
     station = GHCN_Avg_raw.stationlist[_id];
     
     temp = GHCN_Avg_raw.GetTemperature(_id,1983,0);
-    if temp:
+    if temp != -9999:
+        celcius = int(temp) / 100
+        kelvin = celcius + 273.15
+        radius = (kelvin - 200) / 100
+        print(radius);
         ball.SetCenter(station.longitude,station.latitude,0.01);
-        ball.SetRadius((int(temp)+30) / 100);
+        ball.SetRadius(radius)
     
 # MAIN
 ##############################################################
