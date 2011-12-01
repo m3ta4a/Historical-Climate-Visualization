@@ -5,6 +5,7 @@
 #   Valerio Pascucci
 ######
 
+import sys
 from vtk import *
 
 US_STATION_DATA_FN = "data/ushcn-stations.txt";
@@ -19,7 +20,20 @@ US_DATA_FILENAMES = [  'data/9641C_201012_raw.avg',
                     'data/9641C_201012_F52.max',
                     'data/9641C_201012_F52.min',
                     'data/9641C_201012_F52.pcp'];
-
+                    
+            # List of 2-member lists of data-corresponding filenames, 
+            # Within sublist, 1st is metadata, 2nd is actual data
+GHCN_FILENAMES = [  ['data/GHCN/ghcnm.tavg.v3.1.0.20111121.qcu.inv','data/GHCN/ghcnm.tavg.v3.1.0.20111121.qcu.dat'],
+                    ['',''],
+                    ['',''],
+                    ['',''],
+                    ['',''],
+                    ['',''],
+                    ['',''],
+                    ['',''],
+                    ['',''],
+                    ['','']    
+                            ];
 class US_Station:
     def __init__(self, coop_id, latitude, longitude, elevation,state,name,component_1,component_2,component_3,UTC_offset):
         self.coop_id = coop_id;
@@ -34,104 +48,197 @@ class US_Station:
         self.UTC_offset = UTC_offset;
     def __str__(self):
         return "Station ID: {0}, lat: {1}, long: {2}".format(self.coop_id, self.latitude, self.longitude);
-        
 class US_Data:
-    def __init__(self, station_id, element, year):
+    def __init__(self, station_id, element, year, data):
         self.station_id = station_id;
         self.element = element;
         self.year = year;
+        self.data = data;
     def __str__(self):
         return "ID: {0}, element: {1}, year: {2}, data[0]: {3},{4}".format(self.station_id, self.element, self.year, self.data[0], self.data[1]);
-        
+class GHCN_Data:
+    def __init__(self, _id, year, element, values):
+        self.station_id = _id;
+        self.year = year;
+        self.element = element;
+        self.values = values;
+class GHCN_Station:
+    def __init__(self, _id, latitude, longitude, elevation, name, grelev, popcls, popsiz, topo, stveg, stloc, ocndis, airstn, towndis, grveg, popcss):
+        self.station_id = _id;
+        self.latitude = latitude;
+        self.longitude = longitude;
+        self.elevation = elevation;
+        self.name = name;
+# Probably don't need these
+   #     self.grelev = grelev;
+   #     self.popcls = popcls;
+   #     self.popsiz = popsiz;
+   #     self.topo = topo;
+   #     self.stveg = stveg;
+   #     self.stloc = stloc;
+   #     self.ocndis = ocndis;
+   #     self.airstn = airstn;
+   #     self.towndis = towndis;
+   #     self.grveg = grveg;
+   #     self.popcss = popcss;
+    def __str__(self):
+        return "Station Name: {3}, ID: {0}, lat: {1}, long: {2}".format(self.station_id, self.latitude, self.longitude, self.name);
+class GHCN_DataSet:
+    def __init__(self,metaData,data):
+        self.stationlist = metaData;
+        self.data = data;
+    def GetTemperature(self, station_id, year, month):
+        if station_id in self.data:
+            data = self.data[station_id];
+            if int(year) in data:
+                months = data[int(year)];
+                month = months[0];
+                return month[0];
+            else:
+                return -9999;
+        else:
+            return -9999;
+
+# Load GHCN Data
+# Creates a GHCN_DataSet Object, populates its member variables and returns it 
+############################
+def LoadGHCNData(metadata_filename, data_filename):
+    stationlist = dict();
+    for line in open(metadata_filename,'r'):
+        _id = line[0:11];
+        latitude = float(line[12:20]);
+        longitude = float(line[21:30]);
+        elevation = float(line[31:37]);
+        name = line[38:68];
+        grelev = line[69:73];
+        popcls = line[74];
+        popsiz = line[75:79];
+        topo = line[79:81];
+        stveg = line[81:83];
+        stloc = line[83:85];
+        ocndis = line[85:87];
+        airstn = line[88];
+        towndis = line[88:90];
+        grveg = line[90:106];
+        popcss = line[107];
+    
+        station = GHCN_Station(_id,latitude,longitude,elevation,name,grelev,popcls,popsiz,topo,stveg,stloc,ocndis,airstn,towndis,grveg,popcss);
+        stationlist[_id] = station;        
+
+    datalist = dict(); #indexed by station_id
+    for line in open(data_filename, 'r'):
+        _id = line[0:11];
+        year = int(line[11:15]);
+        element = line[15:19];
+        temp = [];
+        index = 19;
+        while index < 109:
+            temp.append(line[index:index+5]);
+            temp.append(line[index+5]);
+            temp.append(line[index+6]);
+            temp.append(line[index+7]);
+            index = index+8;
+        values = [];
+        for i in xrange(0,len(temp)-3,4):
+            value = [temp[i], temp[i+1], temp[i+2], temp[i+3]];
+            values.append(value);
+        # Years collect monthly data for each station by year
+        if _id in datalist:
+            years = datalist[_id];
+        else:
+            years = dict();    
+        years[year] = values;
+        datalist[_id] = years;
+
+    return GHCN_DataSet(stationlist,datalist);
+
+# Appends each line from filename as instance of USData into the supplied listname
+############################
 def LoadUSData(filename, listname):
     for line in open(filename,'r'):
-        station_id = line[0:6];
+        station_id = int(line[0:6]);
         element = line[6];
-        year = line[7:11];
-        data = US_Data(station_id,element,year);
+        year = int(line[7:11]);
         values = line[12:];
-        data.data = values.split();
+        data = US_Data(station_id,element,year,values.split());
         listname.append(data);
 
-        
-# LOAD STATION INFORMATION FROM DISK
-###############################################################
-US_StationData = dict();
-i = 0;
-for line in open(US_STATION_DATA_FN,'r'):
-    coop_id = line[0:6];
-    latitude = line[7:15];
-    longitude = line[16:25];
-    elevation = line[26:32];
-    state = line[33:35];
-    name = line[36:66];
-    component_1 = line[67:73];
-    component_2 = line[74:80];
-    component_3 = line[81:87];
-    UTC_offset = line[88:90];
-    station = US_Station(coop_id,latitude,longitude,elevation,state,name,component_1,component_2,component_3,UTC_offset);
-    US_StationData[coop_id] = station;
-    i=i+1;
+# Renders the given grid data
+############################
+def RenderData(GHCNGlypher, renderer):
+    glyphmapper = vtkPolyDataMapper();
+    glyphmapper.SetInput(GHCNGlypher.GetOutput());
 
-num_stations = len(US_StationData);
-US_StationPoints = vtkPoints();
-US_StationPoints.SetNumberOfPoints(num_stations);
+    glyphactor = vtkActor();
+    glyphactor.SetMapper(glyphmapper);
+    glyphactor.GetProperty().SetDiffuseColor(1,0,0);
+    
+    renderer.AddActor(glyphactor);
 
-poly_vertex = vtk.vtkPolyVertex();
-poly_vertex.GetPointIds().SetNumberOfIds(num_stations);
+# GHCN Glyph Callback
+##########################
+def GlyphGHCN():
+    point_id = GHCNGlypher.GetPointId();
+    _id = StationIDs[point_id];
+    station = GHCN_Avg_raw.stationlist[_id];
+    
+    temp = GHCN_Avg_raw.GetTemperature(_id,1983,0);
+    if temp:
+        ball.SetCenter(station.longitude,station.latitude,0.01);
+        ball.SetRadius((int(temp)+30) / 100);
+    
+# MAIN
+##############################################################
+ren = vtkRenderer();   
 
-i=0;
-for item in US_StationData:
-    poly_vertex.GetPointIds().SetId(i, i)
-    US_StationPoints.InsertPoint(i,float(US_StationData[item].longitude),float(US_StationData[item].latitude), 1.0);
-    i=i+1;
-        
-grid = vtkUnstructuredGrid();
-grid.Allocate(1,1);
-grid.InsertNextCell(poly_vertex.GetCellType(), poly_vertex.GetPointIds());
-grid.SetPoints(US_StationPoints);
+# Use a ball to represent each station
+ball = vtkSphereSource();
+ball.SetRadius(0.2);
+ball.Update();
 
-StationMapper = vtkDataSetMapper();
-StationMapper.SetInput(grid);
-StationActor = vtkActor();
-StationActor.SetMapper(StationMapper);
-StationActor.GetProperty().SetDiffuseColor(0,1,0);
+year = 1983;
+
 
 ##############
 # LOAD DATA
 ##############
-####
-### U.S. DATA
-US_F52_MaxData = []; # F52 ->
-US_F52_MinData = [];
-US_F52_AvgData = [];
-US_F52_PCPData = [];
-US_tob_MaxData = []; # tob ->
-US_tob_MinData = [];
-US_tob_AvgData = [];
-US_raw_MaxData = []; # raw -> 
-US_raw_MinData = [];
-US_raw_AvgData = [];
-US_raw_PCPData = [];
-LoadUSData(US_DATA_FILENAMES[0],US_raw_AvgData);
-LoadUSData(US_DATA_FILENAMES[1],US_raw_MaxData);
-LoadUSData(US_DATA_FILENAMES[2],US_raw_MinData);
-LoadUSData(US_DATA_FILENAMES[3],US_raw_PCPData);
-LoadUSData(US_DATA_FILENAMES[4],US_tob_AvgData);
-LoadUSData(US_DATA_FILENAMES[5],US_tob_MaxData);
-LoadUSData(US_DATA_FILENAMES[6],US_tob_MinData);
-LoadUSData(US_DATA_FILENAMES[7],US_F52_AvgData);
-LoadUSData(US_DATA_FILENAMES[8],US_F52_MaxData);
-LoadUSData(US_DATA_FILENAMES[9],US_F52_MinData);
-LoadUSData(US_DATA_FILENAMES[10],US_F52_PCPData);
+#########
+## GHCN Data
+############################
+GHCN_Avg_raw = LoadGHCNData(GHCN_FILENAMES[0][0],GHCN_FILENAMES[0][1]);
+num_stations = len(GHCN_Avg_raw.stationlist);
 
-# for item in US_F52_MaxData:
-#     print(US_StationData[item.station_id]);
-#     print(item);
+GHCN_StationPts = vtkPoints();
+GHCN_StationPts.SetNumberOfPoints(num_stations);
 
+poly_vertex = vtkPolyVertex();
+poly_vertex.GetPointIds().SetNumberOfIds(num_stations);
 
+StationIDs = dict(); ## Used to map PointIds back to StationIds
 
-# GENERATE IMAGES
+i=0;
+for index in GHCN_Avg_raw.stationlist:
+    station = GHCN_Avg_raw.stationlist[index]; 
+    poly_vertex.GetPointIds().SetId(i, i);
+    GHCN_StationPts.InsertPoint(i, station.longitude, station.latitude, .01);
+    StationIDs[i] = index;
+    i=i+1;
+
+grid = vtkUnstructuredGrid();
+grid.Allocate(1,1);
+grid.InsertNextCell(poly_vertex.GetCellType(), poly_vertex.GetPointIds());
+grid.SetPoints(GHCN_StationPts);
+grid.Update();
+
+GHCNGlypher = vtkProgrammableGlyphFilter();
+GHCNGlypher.SetInput(grid);
+GHCNGlypher.SetSource(ball.GetOutput());
+GHCNGlypher.SetColorModeToColorByInput();
+GHCNGlypher.SetGlyphMethod(GlyphGHCN);
+
+RenderData(GHCNGlypher,ren);
+
+# GENERATE EARTH MAP
 ###############################################################
 
 # Setup data reader
@@ -161,9 +268,10 @@ mapActor = vtkActor();
 mapActor.SetMapper(mapMapper);
 mapActor.SetTexture(mapTexture);
 
-ren = vtkRenderer();
+# Render Window
+############################
 ren.AddActor(mapActor);
-ren.AddActor(StationActor);
+
 renwin = vtkRenderWindow();
 renwin.AddRenderer(ren);
 iren = vtkRenderWindowInteractor();
@@ -176,3 +284,77 @@ ren.ResetCamera();
 
 iren.Initialize();
 iren.Start();
+
+
+
+# FOR NOW DONT CARE ABOUT US ONLY DATA
+# U.S. DATA
+############################
+#US_F52_MaxData = []; # F52 ->
+#US_F52_MinData = [];
+#US_F52_AvgData = [];
+#US_F52_PCPData = [];
+#US_tob_MaxData = []; # tob ->
+#US_tob_MinData = [];
+#US_tob_AvgData = [];
+#US_raw_MaxData = []; # raw -> 
+#US_raw_MinData = [];
+#US_raw_AvgData = [];
+#US_raw_PCPData = [];
+
+# LoadUSData(US_DAA_FILENAMES[0],US_raw_AvgData);
+# LoadUSData(US_DATA_FILENAMES[1],US_raw_MaxData);
+# LoadUSData(US_DATA_FILENAMES[2],US_raw_MinData);
+# LoadUSData(US_DATA_FILENAMES[3],US_raw_PCPData);
+# LoadUSData(US_DATA_FILENAMES[4],US_tob_AvgData);
+# LoadUSData(US_DATA_FILENAMES[5],US_tob_MaxData);
+# LoadUSData(US_DATA_FILENAMES[6],US_tob_MinData);
+# LoadUSData(US_DATA_FILENAMES[7],US_F52_AvgData);
+# LoadUSData(US_DATA_FILENAMES[8],US_F52_MaxData);
+# LoadUSData(US_DATA_FILENAMES[9],US_F52_MinData);
+# LoadUSData(US_DATA_FILENAMES[10],US_F52_PCPData);
+
+# for item in US_F52_MaxData:
+#     print(US_StationData[item.station_id]);
+#     print(item);
+
+# LOAD STATION INFORMATION FROM DISK
+###############################################################
+# US_StationData = dict();
+# for line in open(US_STATION_DATA_FN,'r'):
+#     coop_id = int(line[0:6]);
+#     latitude = float(line[7:15]);
+#     longitude = float(line[16:25]);
+#     elevation = line[26:32];
+#     state = line[33:35];
+#     name = line[36:66];
+#     component_1 = line[67:73];
+#     component_2 = line[74:80];
+#     component_3 = line[81:87];
+#     UTC_offset = line[88:90];
+#     station = US_Station(coop_id,latitude,longitude,elevation,state,name,component_1,component_2,component_3,UTC_offset);
+#     US_StationData[coop_id] = station;
+# 
+# # Show U.S. stations on map
+# ##########################
+# num_stations = len(US_StationData);
+# US_StationPoints = vtkPoints();
+# US_StationPoints.SetNumberOfPoints(num_stations);
+# 
+# poly_vertex = vtk.vtkPolyVertex();
+# poly_vertex.GetPointIds().SetNumberOfIds(num_stations);
+# 
+# i=0;
+# for index, item in US_StationData.iteritems():
+#     poly_vertex.GetPointIds().SetId(i, index)
+#     US_StationPoints.InsertPoint(i,float(item.longitude),float(item.latitude), .01);
+#     i=i+1;
+#         
+# grid = vtkUnstructuredGrid();
+# grid.Allocate(1,1);
+# grid.InsertNextCell(poly_vertex.GetCellType(), poly_vertex.GetPointIds());
+# grid.SetPoints(US_StationPoints);
+# grid.Update();
+
+# RenderData(grid,ren);
+

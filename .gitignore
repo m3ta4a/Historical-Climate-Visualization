@@ -2542,3 +2542,12 @@ data/GHCN/products/stnplots/8/80099912001.gif
 data/GHCN/products/stnplots/8/80099913001.gif
 data/GHCN/products/stnplots/8/80099914001.gif
 data/GHCN/products/stnplots/README
+data/GHCN/README.txt
+data/GHCN/StatusAndErrata.txt
+data/GHCN/ghcnm.tavg.v3.1.0.20111121.qca.dat
+data/GHCN/ghcnm.tavg.v3.1.0.20111121.qca.inv
+data/GHCN/ghcnm.tavg.v3.1.0.20111121.qcu.dat
+data/GHCN/ghcnm.tavg.v3.1.0.20111121.qcu.inv
+data/GHCN/ghcnm.tmin.v3.1.0.20111119.qcu.dat
+data/GHCN/ghcnm.tmin.v3.1.0.20111119.qcu.inv
+data/GHCN/grid-mntp-1880-current-v3.dat.gz
