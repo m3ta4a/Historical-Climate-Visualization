@@ -6,6 +6,7 @@
 ######
 
 import sys
+import random
 from vtk import *
 
 US_STATION_DATA_FN = "data/ushcn-stations.txt";
@@ -34,6 +35,7 @@ GHCN_FILENAMES = [  ['data/GHCN/ghcnm.tavg.v3.1.0.20111121.qcu.inv','data/GHCN/g
                     ['',''],
                     ['','']    
                             ];
+
 class US_Station:
     def __init__(self, coop_id, latitude, longitude, elevation,state,name,component_1,component_2,component_3,UTC_offset):
         self.coop_id = coop_id;
@@ -48,6 +50,7 @@ class US_Station:
         self.UTC_offset = UTC_offset;
     def __str__(self):
         return "Station ID: {0}, lat: {1}, long: {2}".format(self.coop_id, self.latitude, self.longitude);
+
 class US_Data:
     def __init__(self, station_id, element, year, data):
         self.station_id = station_id;
@@ -56,12 +59,14 @@ class US_Data:
         self.data = data;
     def __str__(self):
         return "ID: {0}, element: {1}, year: {2}, data[0]: {3},{4}".format(self.station_id, self.element, self.year, self.data[0], self.data[1]);
+
 class GHCN_Data:
     def __init__(self, _id, year, element, values):
         self.station_id = _id;
         self.year = year;
         self.element = element;
         self.values = values;
+
 class GHCN_Station:
     def __init__(self, _id, latitude, longitude, elevation, name, grelev, popcls, popsiz, topo, stveg, stloc, ocndis, airstn, towndis, grveg, popcss):
         self.station_id = _id;
@@ -69,20 +74,9 @@ class GHCN_Station:
         self.longitude = longitude;
         self.elevation = elevation;
         self.name = name;
-# Probably don't need these
-   #     self.grelev = grelev;
-   #     self.popcls = popcls;
-   #     self.popsiz = popsiz;
-   #     self.topo = topo;
-   #     self.stveg = stveg;
-   #     self.stloc = stloc;
-   #     self.ocndis = ocndis;
-   #     self.airstn = airstn;
-   #     self.towndis = towndis;
-   #     self.grveg = grveg;
-   #     self.popcss = popcss;
     def __str__(self):
         return "Station Name: {3}, ID: {0}, lat: {1}, long: {2}".format(self.station_id, self.latitude, self.longitude, self.name);
+
 class GHCN_DataSet:
     def __init__(self,metaData,data):
         self.stationlist = metaData;
@@ -163,34 +157,24 @@ def LoadUSData(filename, listname):
         data = US_Data(station_id,element,year,values.split());
         listname.append(data);
 
-# Renders the given grid data
-############################
-def RenderData(GHCNGlypher, renderer):
-    glyphmapper = vtkPolyDataMapper();
-    glyphmapper.SetInput(GHCNGlypher.GetOutput());
-
-    glyphactor = vtkActor();
-    glyphactor.SetMapper(glyphmapper);
-    glyphactor.GetProperty().SetDiffuseColor(1,0,0);
-    
-    renderer.AddActor(glyphactor);
-
 # GHCN Glyph Callback
 ##########################
 def GlyphGHCN():
     point_id = GHCNGlypher.GetPointId();
-    _id = StationIDs[point_id];
-    station = GHCN_Avg_raw.stationlist[_id];
-    
-    temp = GHCN_Avg_raw.GetTemperature(_id,1983,0);
-    if temp != -9999:
-        celcius = int(temp) / 100
-        kelvin = celcius + 273.15
-        radius = (kelvin - 200) / 100
-        print(radius);
-        ball.SetCenter(station.longitude,station.latitude,0.01);
-        ball.SetRadius(radius)
-    
+    if point_id in StationIDs:
+        _id = StationIDs[point_id];
+        station = GHCN_Avg_raw.stationlist[_id];
+        temp = GHCN_Avg_raw.GetTemperature(_id,1983,0);
+        if temp != -9999:
+            celcius = float(temp) / 100
+            kelvin = celcius + 273.15
+            radius = (kelvin - 200) / 100 # Hard coded values, can do better.
+            ball.SetCenter(station.longitude,station.latitude,0.01);
+            ball.SetRadius(radius)
+        else:
+            ball.SetRadius(0.0)
+    else:
+        ball.SetRadius(0.0)
 # MAIN
 ##############################################################
 ren = vtkRenderer();   
@@ -198,10 +182,12 @@ ren = vtkRenderer();
 # Use a ball to represent each station
 ball = vtkSphereSource();
 ball.SetRadius(0.2);
+ball.SetThetaResolution(8)
+ball.SetPhiResolution(8)
 ball.Update();
 
-year = 1983;
-
+year = 1983
+month = 0
 
 ##############
 # LOAD DATA
@@ -209,30 +195,50 @@ year = 1983;
 #########
 ## GHCN Data
 ############################
-GHCN_Avg_raw = LoadGHCNData(GHCN_FILENAMES[0][0],GHCN_FILENAMES[0][1]);
-num_stations = len(GHCN_Avg_raw.stationlist);
+GHCN_Avg_raw = LoadGHCNData(GHCN_FILENAMES[0][0],GHCN_FILENAMES[0][1])
+num_stations = len(GHCN_Avg_raw.stationlist)
 
-GHCN_StationPts = vtkPoints();
-GHCN_StationPts.SetNumberOfPoints(num_stations);
+GHCN_StationPts = vtkPoints()
+GHCN_StationPts.SetNumberOfPoints(num_stations)
 
-poly_vertex = vtkPolyVertex();
-poly_vertex.GetPointIds().SetNumberOfIds(num_stations);
+poly_vertex = vtkPolyVertex()
+poly_vertex.GetPointIds().SetNumberOfIds(num_stations)
 
-StationIDs = dict(); ## Used to map PointIds back to StationIds
+StationIDs = dict() ## Used to map PointIds back to StationIds
 
-i=0;
+print("number of stations:")
+print(num_stations)
+
+i=0
+temperatures = vtkFloatArray()
 for index in GHCN_Avg_raw.stationlist:
-    station = GHCN_Avg_raw.stationlist[index]; 
-    poly_vertex.GetPointIds().SetId(i, i);
-    GHCN_StationPts.InsertPoint(i, station.longitude, station.latitude, .01);
-    StationIDs[i] = index;
-    i=i+1;
+    station = GHCN_Avg_raw.stationlist[index]
+    temp = GHCN_Avg_raw.GetTemperature(index,year,month)
+    if int(temp) != -9999:
+        celc = float(temp) / 100.0
+        val  = (celc + 50) / 100
+        temperatures.InsertNextValue(val)
+        poly_vertex.GetPointIds().SetId(i, i)
+        GHCN_StationPts.InsertPoint(i, station.longitude, station.latitude, .01)
+        StationIDs[i] = index
+        i=i+1
 
 grid = vtkUnstructuredGrid();
 grid.Allocate(1,1);
 grid.InsertNextCell(poly_vertex.GetCellType(), poly_vertex.GetPointIds());
 grid.SetPoints(GHCN_StationPts);
+grid.GetCellData().SetScalars(temperatures)
 grid.Update();
+
+ball_lut = vtkLookupTable()
+ball_lut.SetNumberOfColors(256)
+for i in range(256):
+    ball_lut.SetTableValue( i, float(i)/255.0, 0.0, 1 - float(i)/255.0, 1.0 )
+#ball_lut.SetValueRange(0,1)
+#ball_lut.SetSaturationRange(1.0, 1.0)
+#ball_lut.SetHueRange(.8,1.0)
+#ball_lut.SetRampToLinear()
+#ball_lut.Build()
 
 GHCNGlypher = vtkProgrammableGlyphFilter();
 GHCNGlypher.SetInput(grid);
@@ -240,11 +246,17 @@ GHCNGlypher.SetSource(ball.GetOutput());
 GHCNGlypher.SetColorModeToColorByInput();
 GHCNGlypher.SetGlyphMethod(GlyphGHCN);
 
-RenderData(GHCNGlypher,ren);
+glyphmapper = vtkPolyDataMapper();
+glyphmapper.SetInput(GHCNGlypher.GetOutput());
+glyphmapper.SetLookupTable(ball_lut)
+
+glyphactor = vtkActor();
+glyphactor.SetMapper(glyphmapper);
+
+ren.AddActor(glyphactor);
 
 # GENERATE EARTH MAP
 ###############################################################
-
 # Setup data reader
 earth_image = "1_world.topo.bathy.200403.3x5400x2700.jpg";
 reader = vtkJPEGReader(); 
