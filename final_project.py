@@ -25,7 +25,8 @@ US_DATA_FILENAMES = [  'data/9641C_201012_raw.avg',
             # List of 2-member lists of data-corresponding filenames, 
             # Within sublist, 1st is metadata, 2nd is actual data
 GHCN_FILENAMES = [  ['data/GHCN/ghcnm.tavg.v3.1.0.20111121.qcu.inv','data/GHCN/ghcnm.tavg.v3.1.0.20111121.qcu.dat'],
-                    ['',''],
+                    [''
+                    ,''],
                     ['',''],
                     ['',''],
                     ['',''],
@@ -78,21 +79,33 @@ class GHCN_Station:
         return "Station Name: {3}, ID: {0}, lat: {1}, long: {2}".format(self.station_id, self.latitude, self.longitude, self.name);
 
 class GHCN_DataSet:
-    def __init__(self,metaData,data):
+    def __init__(self,metaData,data, runningAvg):
         self.stationlist = metaData;
         self.data = data;
+        self.runningAvg = runningAvg;
     def GetTemperature(self, station_id, year, month):
         if station_id in self.data:
             data = self.data[station_id];
             if int(year) in data:
                 months = data[int(year)];
-                month = months[0];
+                month = months[month];
                 return month[0];
             else:
                 return -9999;
         else:
             return -9999;
-
+    def GetRunningAvg(self, station_id, year, month):
+        if station_id in self.runningAvg:
+            avgs = self.runningAvg[station_id]
+            date = (month,year)
+            if date in avgs:
+                return avgs[date]
+            else:
+                return -9999
+        else:
+            return -9999
+        
+        
 # Load GHCN Data
 # Creates a GHCN_DataSet Object, populates its member variables and returns it 
 ############################
@@ -120,22 +133,49 @@ def LoadGHCNData(metadata_filename, data_filename):
         stationlist[_id] = station;        
 
     datalist = dict(); #indexed by station_id
+    runningAvgs = dict(); #indexed by station_id
+    runningTotal = dict();
+    count = dict();
     for line in open(data_filename, 'r'):
         _id = line[0:11];
         year = int(line[11:15]);
         element = line[15:19];
         temp = [];
         index = 19;
+        
+        # Setup to get running averages for this entry
+        if _id in runningAvgs:
+            runningAvg = runningAvgs[_id]
+        else:
+            runningAvg = dict()
+        
         while index < 109:
             temp.append(line[index:index+5]);
             temp.append(line[index+5]);
             temp.append(line[index+6]);
             temp.append(line[index+7]);
             index = index+8;
-        values = [];
+        values = []
         for i in xrange(0,len(temp)-3,4):
+            month = i / 4
+            temperature = int(temp[i])
+            if temperature != -9999: 
+                if month in count:
+                    c = count[month]
+                else:
+                    c = 0
+                count[month] = c + 1
+                if month in runningTotal:
+                    rt = runningTotal[month]    
+                else:
+                    rt = 0
+                runningTotal[month] = rt + temperature
+                runningAvg[(month,year)] = float(runningTotal[month]/count[month])
             value = [temp[i], temp[i+1], temp[i+2], temp[i+3]];
             values.append(value);
+            
+        runningAvgs[_id] = runningAvg; 
+        
         # Years collect monthly data for each station by year
         if _id in datalist:
             years = datalist[_id];
@@ -144,7 +184,7 @@ def LoadGHCNData(metadata_filename, data_filename):
         years[year] = values;
         datalist[_id] = years;
 
-    return GHCN_DataSet(stationlist,datalist);
+    return GHCN_DataSet(stationlist,datalist,runningAvgs);
 
 # Appends each line from filename as instance of USData into the supplied listname
 ############################
@@ -164,13 +204,21 @@ def GlyphGHCN():
     if point_id in StationIDs:
         _id = StationIDs[point_id];
         station = GHCN_Avg_raw.stationlist[_id];
-        temp = GHCN_Avg_raw.GetTemperature(_id,1983,0);
-        if temp != -9999:
-            celcius = float(temp) / 100
-            kelvin = celcius + 273.15
-            radius = (kelvin - 200) / 100 # Hard coded values, can do better.
-            ball.SetCenter(station.longitude,station.latitude,0.01);
-            ball.SetRadius(radius)
+        avg = GHCN_Avg_raw.GetRunningAvg(_id,CUR_YEAR,CUR_MONTH);
+        temp = GHCN_Avg_raw.GetTemperature(_id,CUR_YEAR,CUR_MONTH);
+        if avg != -9999:
+            if temp != -9999:
+                cTemp = float(temp) / 100.0
+                cAvg = float(avg) / 100.0            
+            
+                radius = cTemp / cAvg
+                
+                print radius
+
+                ball.SetCenter(station.longitude,station.latitude,0.01);
+                ball.SetRadius(radius)
+            else:
+                ball.SetRadius(0.0)
         else:
             ball.SetRadius(0.0)
     else:
@@ -186,8 +234,8 @@ ball.SetThetaResolution(8)
 ball.SetPhiResolution(8)
 ball.Update();
 
-year = 1983
-month = 0
+CUR_YEAR = 1950
+CUR_MONTH = 8
 
 ##############
 # LOAD DATA
@@ -209,12 +257,14 @@ StationIDs = dict() ## Used to map PointIds back to StationIds
 print("number of stations:")
 print(num_stations)
 
+## Get spatial data (station coordinates) set up
 i=0
 temperatures = vtkFloatArray()
 for index in GHCN_Avg_raw.stationlist:
     station = GHCN_Avg_raw.stationlist[index]
-    temp = GHCN_Avg_raw.GetTemperature(index,year,month)
+    temp = GHCN_Avg_raw.GetTemperature(index,CUR_YEAR,CUR_MONTH)
     if int(temp) != -9999:
+         # Set a range of -50 C <-> +50 C (scalars values are between [0-1])
         celc = float(temp) / 100.0
         val  = (celc + 50) / 100
         temperatures.InsertNextValue(val)
@@ -223,6 +273,7 @@ for index in GHCN_Avg_raw.stationlist:
         StationIDs[i] = index
         i=i+1
 
+## Unstructured Grid Data
 grid = vtkUnstructuredGrid();
 grid.Allocate(1,1);
 grid.InsertNextCell(poly_vertex.GetCellType(), poly_vertex.GetPointIds());
@@ -230,29 +281,27 @@ grid.SetPoints(GHCN_StationPts);
 grid.GetCellData().SetScalars(temperatures)
 grid.Update();
 
+## Lookup Table
 ball_lut = vtkLookupTable()
 ball_lut.SetNumberOfColors(256)
 for i in range(256):
     ball_lut.SetTableValue( i, float(i)/255.0, 0.0, 1 - float(i)/255.0, 1.0 )
-#ball_lut.SetValueRange(0,1)
-#ball_lut.SetSaturationRange(1.0, 1.0)
-#ball_lut.SetHueRange(.8,1.0)
-#ball_lut.SetRampToLinear()
-#ball_lut.Build()
 
+## Programmable glypher gives us a callback for drawing the glyphs
 GHCNGlypher = vtkProgrammableGlyphFilter();
 GHCNGlypher.SetInput(grid);
 GHCNGlypher.SetSource(ball.GetOutput());
 GHCNGlypher.SetColorModeToColorByInput();
 GHCNGlypher.SetGlyphMethod(GlyphGHCN);
 
+## PolyMapper
 glyphmapper = vtkPolyDataMapper();
 glyphmapper.SetInput(GHCNGlypher.GetOutput());
 glyphmapper.SetLookupTable(ball_lut)
 
+## Actor
 glyphactor = vtkActor();
 glyphactor.SetMapper(glyphmapper);
-
 ren.AddActor(glyphactor);
 
 # GENERATE EARTH MAP
@@ -293,6 +342,7 @@ renwin.AddRenderer(ren);
 iren = vtkRenderWindowInteractor();
 iren.SetRenderWindow(renwin);
 ren.SetBackground(0,0,0.2);
+# ren.GetCamera().Zoom(1.4)
 renwin.SetSize(1480,1480);
 
 renwin.Render();
